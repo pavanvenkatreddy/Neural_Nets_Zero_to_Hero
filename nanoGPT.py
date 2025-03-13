@@ -4,17 +4,18 @@ from torch.nn import functional as F
 
 #Hyperparameters
 torch.manual_seed(1337)
-block_size = 8
-batch_size = 32
-n_embd = 32
-learning_rate = 1e-3
-eval_iters = 1000
-eval_interval = 1000
-max_iters = 10000
-n_layer = 4
-n_head = 4
+block_size = 256
+batch_size = 64
+n_embd = 384 
+learning_rate = 3e-4
+eval_iters = 200
+eval_interval = 500
+max_iters = 5000
+n_layer = 6
+n_head = 6
 dropout = 0.2  # Added dropout for regularization
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"Using {device}")
 
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = f.read()
@@ -56,7 +57,7 @@ def estimate_loss():
     model.train()
     return out
 
-xb, yb = get_batch("train")
+#xb, yb = get_batch("train")
 
 class Head(nn.Module):
     def __init__(self, head_size):
@@ -157,9 +158,11 @@ class BigramLanguageModel(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 
-model = BigramLanguageModel(vocab_size)
-m = model.to(device)
+model = BigramLanguageModel(vocab_size).to(device)
+#m = model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+
+print(next(model.parameters()).device)
 
 for iter in range(max_iters):
 
@@ -168,6 +171,7 @@ for iter in range(max_iters):
         print(f"step {iter}: train_loss:{losses['train']:.4f}, val_loss:{losses['val']:.4f}")
     
     xb, yb = get_batch('train')
+    xb, yb = xb.to(device), yb.to(device)
 
     logits, loss = model(xb, yb)
     optimizer.zero_grad(set_to_none=True)
@@ -175,4 +179,7 @@ for iter in range(max_iters):
     optimizer.step()
 
 context = torch.zeros([1,1], dtype=torch.long, device=device)
-print(decode(m.generate(context, max_new_tokens=1000)[0].tolist()))
+print(decode(model.generate(context, max_new_tokens=1000)[0].tolist()))
+
+torch.save(model.state_dict(), 'model.pth')
+print("Model saved as model.pth")
