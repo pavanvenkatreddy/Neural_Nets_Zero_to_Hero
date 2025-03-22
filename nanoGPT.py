@@ -1,3 +1,4 @@
+import regex as re
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -8,8 +9,8 @@ block_size = 256
 batch_size = 64
 n_embd = 384 
 learning_rate = 3e-4
-eval_iters = 200
-eval_interval = 500
+eval_iters = 400
+eval_interval = 200
 max_iters = 5000
 n_layer = 6
 n_head = 6
@@ -20,13 +21,64 @@ print(f"Using {device}")
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
+def stats(ids, counts=None):
+  counts = {} if counts is None else counts
+  for pair in zip(ids, ids[1:]):
+    counts[pair] = counts.get(pair, 0) + 1
+  return counts
 
-stoi = {ch:i for i,ch in enumerate(chars)}
-itos = {i:ch for i,ch in enumerate(chars)}
-encode = lambda s: [stoi[c] for c in s]
-decode = lambda l: "".join([itos[i] for i in l])
+def merge(ids, pair, idx):
+  newids = []
+  i = 0
+  while i < len(ids):
+    if i < len(ids) - 1 and ids[i] == pair[0] and ids[i+1] == pair[1]:
+      newids.append(idx)
+      i += 2
+    else:
+      newids.append(ids[i])
+      i += 1
+  return newids
+
+def train(text, size):
+  #regex
+  pattern = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+  re_pattern = re.compile(pattern)
+  text_chunks = re_pattern.findall(text)
+
+
+  vocab = {idx: bytes([idx]) for idx in range(256)}
+  tokens = [list(ch.encode("utf-8")) for ch in text_chunks]
+  merges = {}
+  for i in range(256, size):
+    seq_stats = {}
+    for chunk_ids in tokens:
+      stats(chunk_ids, seq_stats)
+    top_pair = max(seq_stats, key=seq_stats.get)
+    tokens = [merge(chunk_ids, top_pair, i) for chunk_ids in tokens]
+    vocab[i] = vocab[top_pair[0]] + vocab[top_pair[1]]
+    merges[top_pair] = i
+  
+  return vocab, merges
+
+def decode(ids):
+  tokens = b"".join([vocab[id] for id in ids])
+  text = tokens.decode("utf-8", errors = "replace")
+  return text
+
+def encode(text):
+  tokens = list(text.encode("utf-8"))
+  while len(tokens) >= 2:
+    numerics = stats(tokens)
+    pair = min(numerics, key=lambda p: merges.get(p, float("inf")))
+    if pair not in merges:
+      break
+    idx = merges[pair]
+    tokens = merge(tokens, pair, idx)
+  return tokens
+
+vocab, merges = train(text, 256)
+
+vocab_size = len(vocab)
 
 data = torch.tensor(encode(text), dtype=torch.long)
 
@@ -98,7 +150,7 @@ class FeedForward(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_embd, 4 * n_embd),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(4 * n_embd, n_embd),
             nn.Dropout(dropout)  # Added dropout for regularization
         )
@@ -162,6 +214,8 @@ model = BigramLanguageModel(vocab_size).to(device)
 #m = model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iters, eta_min=1e-5)
+
 print(next(model.parameters()).device)
 
 for iter in range(max_iters):
@@ -178,8 +232,10 @@ for iter in range(max_iters):
     loss.backward()
     optimizer.step()
 
+    scheduler.step()
+
 context = torch.zeros([1,1], dtype=torch.long, device=device)
 print(decode(model.generate(context, max_new_tokens=1000)[0].tolist()))
 
 torch.save(model.state_dict(), 'model.pth')
-print("Model saved as model.pth")
+print("Model saved as model1.pth")
