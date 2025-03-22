@@ -1,4 +1,3 @@
-import regex as re
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -10,8 +9,8 @@ block_size = 256
 batch_size = 64
 n_embd = 384 
 learning_rate = 3e-4
-eval_iters = 400
-eval_interval = 200
+eval_iters = 200
+eval_interval = 500
 max_iters = 5000
 n_layer = 6
 n_head = 6
@@ -100,7 +99,7 @@ class FeedForward(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_embd, 4 * n_embd),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(4 * n_embd, n_embd),
             nn.Dropout(dropout)  # Added dropout for regularization
         )
@@ -160,34 +159,11 @@ class BigramLanguageModel(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 
-model = BigramLanguageModel(vocab_size).to(device)
-#m = model.to(device)
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, max_iters, eta_min=1e-5)
-
-print(next(model.parameters()).device)
-
-"""
-for iter in range(max_iters):
-    break
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-        print(f"step {iter}: train_loss:{losses['train']:.4f}, val_loss:{losses['val']:.4f}")
-    
-    xb, yb = get_batch('train')
-    xb, yb = xb.to(device), yb.to(device)
-
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
-
-    scheduler.step()
-
+model = BigramLanguageModel(vocab_size)
+model.load_state_dict(torch.load('model.pth', map_location=torch.device(device)))
+model.to(device)
+# Calculate total number of parameters
+total_params = sum(p.numel() for p in model.parameters())
+print(f'Total number of parameters: {total_params}')
 context = torch.zeros([1,1], dtype=torch.long, device=device)
 print(decode(model.generate(context, max_new_tokens=1000)[0].tolist()))
-
-torch.save(model.state_dict(), 'model.pth')
-print("Model saved as model1.pth")"
-"""
