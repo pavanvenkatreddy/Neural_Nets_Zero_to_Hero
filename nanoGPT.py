@@ -76,7 +76,7 @@ def encode(text):
     tokens = merge(tokens, pair, idx)
   return tokens
 
-vocab, merges = train(text, 256)
+vocab, merges = train(text, 500)
 
 vocab_size = len(vocab)
 
